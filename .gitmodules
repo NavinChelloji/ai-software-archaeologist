@@ -1,0 +1,12 @@
+[submodule "apps/ai-archaeologist-frontend"]
+	path = apps/ai-archaeologist-frontend
+	url = https://github.com/NavinChelloji/ai-archaeologist-frontend.git
+[submodule "services/ai-archaeologist-auth"]
+	path = services/ai-archaeologist-auth
+	url = https://github.com/NavinChelloji/ai-archaeologist-auth.git
+[submodule "services/ai-archaeologist-intelligence"]
+	path = services/ai-archaeologist-intelligence
+	url = https://github.com/NavinChelloji/ai-archaeologist-intelligence.git
+[submodule "services/ai-archaeologist-repository"]
+	path = services/ai-archaeologist-repository
+	url = https://github.com/NavinChelloji/ai-archaeologist-repository.git

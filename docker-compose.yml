@@ -1,0 +1,143 @@
+name: ai-code-archaeologist
+
+x-app-env: &app-env
+  NODE_ENV: ${NODE_ENV:-development}
+  QUEUE_DATABASE_URL: postgres://postgres:postgres@postgres:5432/aca_queue
+  REDIS_URL: redis://redis:6379
+  INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:-}
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    profiles: ["infra"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/create-databases.sql:/docker-entrypoint-initdb.d/create-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    profiles: ["infra"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    profiles: ["infra"]
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-aca_minio_admin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-aca_minio_admin_secret}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio-init:
+    image: minio/mc:latest
+    profiles: ["infra"]
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-aca_minio_admin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-aca_minio_admin_secret}
+      MINIO_BUCKET: ${S3_BUCKET:-aca-snapshots}
+    volumes:
+      - ./infra/minio/create-bucket.sh:/create-bucket.sh:ro
+    entrypoint: ["/bin/sh", "/create-bucket.sh"]
+
+  # -------------------------------------------------------------------------
+  # apps profile — optional containerized run of the four deployables.
+  # Day-to-day development runs infra in Docker and services on the host
+  # (WORKSPACE_AND_PACKAGE_STRATEGY.md "Docker Compose Strategy") via
+  # `pnpm dev`; this profile is for validating each Dockerfile builds and
+  # runs correctly, e.g. `docker compose --profile apps up --build`.
+  # -------------------------------------------------------------------------
+  api:
+    profiles: ["apps"]
+    build:
+      context: .
+      dockerfile: services/ai-archaeologist-auth/Dockerfile
+    environment:
+      <<: *app-env
+      PORT: 3000
+      API_DATABASE_URL: postgres://postgres:postgres@postgres:5432/aca_api
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  indexer:
+    profiles: ["apps"]
+    build:
+      context: .
+      dockerfile: services/ai-archaeologist-repository/Dockerfile
+    environment:
+      <<: *app-env
+      PORT: 3100
+      INDEXER_DATABASE_URL: postgres://postgres:postgres@postgres:5432/aca_indexer
+    ports:
+      - "3100:3100"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  ai:
+    profiles: ["apps"]
+    build:
+      context: .
+      dockerfile: services/ai-archaeologist-intelligence/Dockerfile
+    environment:
+      <<: *app-env
+      PORT: 3200
+      AI_DATABASE_URL: postgres://postgres:postgres@postgres:5432/aca_ai
+    ports:
+      - "3200:3200"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    profiles: ["apps"]
+    build:
+      context: .
+      dockerfile: apps/ai-archaeologist-frontend/Dockerfile
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

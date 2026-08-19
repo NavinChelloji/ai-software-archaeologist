@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: install, lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.11"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+# Later stages add: Testcontainers-backed integration tests, the
+# sample-repository e2e suite, per-service Docker image builds tagged with
+# the commit SHA, dependency/image scanning, and a dry-run migration check
+# against a throwaway database — see WORKSPACE_AND_PACKAGE_STRATEGY.md "CI
+# Strategy". Stage 1 only requires install, lint, typecheck, test, build
+# (DEVELOPMENT_STAGES.md Stage 1).

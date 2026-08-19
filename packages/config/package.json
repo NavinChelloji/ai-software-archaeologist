@@ -1,0 +1,23 @@
+{
+  "name": "@aca/config",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@aca/eslint-config": "workspace:*",
+    "@aca/tsconfig": "workspace:*",
+    "typescript": "^5.5.0",
+    "vitest": "^4.1.11"
+  }
+}

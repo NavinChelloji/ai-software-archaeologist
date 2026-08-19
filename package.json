@@ -1,0 +1,40 @@
+{
+  "name": "ai-code-archaeologist",
+  "private": true,
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "dev:web": "pnpm --filter @aca/ai-archaeologist-frontend dev",
+    "dev:api": "pnpm --filter @aca/ai-archaeologist-auth dev",
+    "dev:indexer": "pnpm --filter @aca/ai-archaeologist-repository dev",
+    "dev:ai": "pnpm --filter @aca/ai-archaeologist-intelligence dev",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "test:e2e": "turbo run test:e2e",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "infra:up": "docker compose --profile infra up -d postgres redis minio minio-init && pnpm infra:init",
+    "infra:init": "docker compose exec -T postgres psql -U postgres -f /docker-entrypoint-initdb.d/create-databases.sql",
+    "infra:down": "docker compose --profile infra down",
+    "infra:reset": "docker compose --profile infra down -v && pnpm infra:up && pnpm db:migrate",
+    "db:migrate": "node scripts/db-migrate.mjs up all",
+    "db:migrate:api": "node scripts/db-migrate.mjs up api",
+    "db:migrate:indexer": "node scripts/db-migrate.mjs up indexer",
+    "db:migrate:ai": "node scripts/db-migrate.mjs up ai",
+    "db:new": "node scripts/db-migrate.mjs new",
+    "seed:sample-repo": "pnpm --filter @aca/ai-archaeologist-repository seed:sample-repo"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "dbmate": "^2.19.0",
+    "dotenv": "^16.4.5",
+    "prettier": "^3.3.0",
+    "turbo": "^2.3.3",
+    "typescript": "^5.5.0"
+  }
+}
