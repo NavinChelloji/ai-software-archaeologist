@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
 import type PgBoss from "pg-boss";
 import { describe, expect, it, vi } from "vitest";
-import { publishJob, subscribeJob } from "./productQueue";
+import { publishJob, retryBackoffSeconds, subscribeJob } from "./productQueue";
 
 function fakePool(alreadyProcessed = false): Pool {
   return {
@@ -33,8 +33,27 @@ describe("publishJob", () => {
     expect(jobId).toBe("job-123");
     expect(send).toHaveBeenCalledWith(
       "repo.deleted",
-      expect.objectContaining({ eventType: "repo.deleted" })
+      expect.objectContaining({ eventType: "repo.deleted" }),
+      {}
     );
+  });
+
+  it("passes startAfter through to pg-boss when a backoff delay is given", async () => {
+    const send = vi.fn().mockResolvedValue("job-123");
+    const boss = { send } as unknown as PgBoss;
+
+    await publishJob(
+      boss,
+      {
+        eventType: "repo.deleted",
+        payload: { repoId: "123e4567-e89b-12d3-a456-426614174000", reason: "user_request" },
+        correlationId: "123e4567-e89b-12d3-a456-426614174001",
+        userId: "123e4567-e89b-12d3-a456-426614174002",
+      },
+      60
+    );
+
+    expect(send).toHaveBeenCalledWith("repo.deleted", expect.anything(), { startAfter: 60 });
   });
 
   it("throws when pg-boss declines to enqueue", async () => {
@@ -48,6 +67,18 @@ describe("publishJob", () => {
         userId: "123e4567-e89b-12d3-a456-426614174002",
       })
     ).rejects.toThrow();
+  });
+});
+
+describe("retryBackoffSeconds", () => {
+  it("doubles the base delay for each retry attempt", () => {
+    expect(retryBackoffSeconds(1, 30)).toBe(30);
+    expect(retryBackoffSeconds(2, 30)).toBe(60);
+    expect(retryBackoffSeconds(3, 30)).toBe(120);
+  });
+
+  it("floors at the base delay for a non-positive retry count", () => {
+    expect(retryBackoffSeconds(0, 30)).toBe(30);
   });
 });
 

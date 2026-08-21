@@ -1,6 +1,8 @@
 # ADR 0002 — GitHub is the only identity provider
 
-**Status:** Accepted · **Date:** 2026-08-18
+**Status:** Superseded by `adr/0006-email-password-auth.md` (2026-08-20) · **Date:** 2026-08-18
+
+> The product requirement changed: email/password sign-in is now supported alongside GitHub. The reasoning below for *why* passwords were originally dropped — and why `oauth_identities` isn't needed for a single OAuth provider — still holds and is worth reading; only the "only" in the title no longer does.
 
 ## Context
 

@@ -11,6 +11,11 @@ import { markEventProcessed } from "@aca/db";
 import type { Logger } from "@aca/logger";
 import type { RetryPolicy } from "./boss";
 
+/** Exponential backoff in seconds for the Nth stage-level retry (JOB_ORCHESTRATOR_SERVICE_PLAN.md "Failure ownership"). */
+export function retryBackoffSeconds(retryCount: number, baseSeconds: number): number {
+  return baseSeconds * 2 ** Math.max(retryCount - 1, 0);
+}
+
 /**
  * Creates the queue and its dead-letter queue for one documented job name
  * (EVENT_CONTRACTS.md "Retry and Dead Letter": exhausted jobs move to
@@ -32,13 +37,18 @@ export async function ensureProductQueue(
   });
 }
 
-/** Validates the payload against its job schema, wraps it in an envelope, and enqueues it. */
+/** Validates the payload against its job schema, wraps it in an envelope, and enqueues it. `startAfterSeconds` delays delivery — used for stage-retry backoff. */
 export async function publishJob<T extends JobName>(
   boss: PgBoss,
-  input: BuildEnvelopeInput<T>
+  input: BuildEnvelopeInput<T>,
+  startAfterSeconds?: number
 ): Promise<string> {
   const envelope = buildEnvelope(input);
-  const jobId = await boss.send(input.eventType, envelope);
+  const jobId = await boss.send(
+    input.eventType,
+    envelope,
+    startAfterSeconds ? { startAfter: startAfterSeconds } : {}
+  );
   if (!jobId) {
     throw new Error(`pg-boss declined to enqueue "${input.eventType}"`);
   }
