@@ -8,9 +8,9 @@
   "scripts": {
     "dev": "turbo run dev --parallel",
     "dev:web": "pnpm --filter @aca/ai-archaeologist-frontend dev",
-    "dev:api": "pnpm --filter @aca/ai-archaeologist-auth dev",
-    "dev:indexer": "pnpm --filter @aca/ai-archaeologist-repository dev",
-    "dev:ai": "pnpm --filter @aca/ai-archaeologist-intelligence dev",
+    "dev:auth": "pnpm --filter @aca/ai-archaeologist-auth dev",
+    "dev:repository": "pnpm --filter @aca/ai-archaeologist-repository dev",
+    "dev:intelligence": "pnpm --filter @aca/ai-archaeologist-intelligence dev",
     "build": "turbo run build",
     "test": "turbo run test",
     "test:e2e": "turbo run test:e2e",

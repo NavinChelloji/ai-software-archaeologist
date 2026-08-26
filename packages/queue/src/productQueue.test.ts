@@ -1,7 +1,11 @@
 import type { Pool } from "pg";
 import type PgBoss from "pg-boss";
 import { describe, expect, it, vi } from "vitest";
-import { publishJob, subscribeJob } from "./productQueue";
+import { ensureProductQueue, publishJob, retryBackoffSeconds, subscribeJob } from "./productQueue";
+
+const REPO_ID = "123e4567-e89b-12d3-a456-426614174003";
+const USER_ID = "123e4567-e89b-12d3-a456-426614174002";
+const CORRELATION_ID = "123e4567-e89b-12d3-a456-426614174001";
 
 function fakePool(alreadyProcessed = false): Pool {
   return {
@@ -23,18 +27,37 @@ describe("publishJob", () => {
     const send = vi.fn().mockResolvedValue("job-123");
     const boss = { send } as unknown as PgBoss;
 
-    const jobId = await publishJob(boss, {
+    await publishJob(boss, {
       eventType: "repo.deleted",
       payload: { repoId: "123e4567-e89b-12d3-a456-426614174000", reason: "user_request" },
-      correlationId: "123e4567-e89b-12d3-a456-426614174001",
-      userId: "123e4567-e89b-12d3-a456-426614174002",
+      correlationId: CORRELATION_ID,
+      userId: USER_ID,
     });
 
-    expect(jobId).toBe("job-123");
+    expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith(
       "repo.deleted",
-      expect.objectContaining({ eventType: "repo.deleted" })
+      expect.objectContaining({ eventType: "repo.deleted" }),
+      {}
     );
+  });
+
+  it("passes startAfter through to pg-boss when a backoff delay is given", async () => {
+    const send = vi.fn().mockResolvedValue("job-123");
+    const boss = { send } as unknown as PgBoss;
+
+    await publishJob(
+      boss,
+      {
+        eventType: "repo.deleted",
+        payload: { repoId: "123e4567-e89b-12d3-a456-426614174000", reason: "user_request" },
+        correlationId: CORRELATION_ID,
+        userId: USER_ID,
+      },
+      60
+    );
+
+    expect(send).toHaveBeenCalledWith("repo.deleted", expect.anything(), { startAfter: 60 });
   });
 
   it("throws when pg-boss declines to enqueue", async () => {
@@ -44,10 +67,103 @@ describe("publishJob", () => {
       publishJob(boss, {
         eventType: "repo.deleted",
         payload: { repoId: "123e4567-e89b-12d3-a456-426614174000", reason: "user_request" },
-        correlationId: "123e4567-e89b-12d3-a456-426614174001",
-        userId: "123e4567-e89b-12d3-a456-426614174002",
+        correlationId: CORRELATION_ID,
+        userId: USER_ID,
       })
     ).rejects.toThrow();
+  });
+
+  it("fans out a registered job to every consumer queue, not just the job's own name", async () => {
+    const send = vi.fn().mockResolvedValue("job-123");
+    const boss = { send } as unknown as PgBoss;
+
+    await publishJob(boss, {
+      eventType: "repo.import.requested",
+      payload: {
+        provider: "github",
+        providerRepoId: "1",
+        fullName: "owner/repo",
+        defaultBranch: "main",
+        isPrivate: false,
+        ref: null,
+        reindex: false,
+      },
+      correlationId: CORRELATION_ID,
+      userId: USER_ID,
+      repoId: REPO_ID,
+    });
+
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenCalledWith("repo.import.requested", expect.anything(), {});
+    expect(send).toHaveBeenCalledWith("repo.import.requested.snapshots", expect.anything(), {});
+  });
+
+  it("throws if any fan-out queue declines, even when the primary queue accepted", async () => {
+    const send = vi.fn().mockImplementation(async (name: string) => (name === "repo.snapshot.created" ? "job-1" : null));
+    const boss = { send } as unknown as PgBoss;
+
+    await expect(
+      publishJob(boss, {
+        eventType: "repo.snapshot.created",
+        payload: {
+          commitSha: "abc123",
+          ref: "main",
+          archiveKey: "repo/snap/archive.tar.gz",
+          sizeBytes: 100,
+          reused: false,
+          stage: "snapshotting",
+          batchIndex: 0,
+          batchCount: 1,
+          itemsProcessed: 1,
+          totalItems: 1,
+          durationMs: 10,
+        },
+        correlationId: CORRELATION_ID,
+        userId: USER_ID,
+        repoId: REPO_ID,
+        snapshotId: "123e4567-e89b-12d3-a456-426614174004",
+      })
+    ).rejects.toThrow();
+  });
+});
+
+describe("ensureProductQueue", () => {
+  const retryPolicy = { retryLimit: 3, retryBackoffSeconds: 30 };
+
+  it("creates the queue and its dead-letter queue named after the job by default", async () => {
+    const createQueue = vi.fn().mockResolvedValue(undefined);
+    const boss = { createQueue } as unknown as PgBoss;
+
+    await ensureProductQueue(boss, "repo.deleted", retryPolicy);
+
+    expect(createQueue).toHaveBeenCalledWith("repo.deleted.dlq");
+    expect(createQueue).toHaveBeenCalledWith("repo.deleted", expect.objectContaining({ name: "repo.deleted", deadLetter: "repo.deleted.dlq" }));
+  });
+
+  it("creates a distinctly named queue for a fan-out consumer, not one named after the job", async () => {
+    const createQueue = vi.fn().mockResolvedValue(undefined);
+    const boss = { createQueue } as unknown as PgBoss;
+
+    await ensureProductQueue(boss, "repo.import.requested", retryPolicy, "repo.import.requested.snapshots");
+
+    expect(createQueue).toHaveBeenCalledWith("repo.import.requested.snapshots.dlq");
+    expect(createQueue).toHaveBeenCalledWith(
+      "repo.import.requested.snapshots",
+      expect.objectContaining({ name: "repo.import.requested.snapshots", deadLetter: "repo.import.requested.snapshots.dlq" })
+    );
+    expect(createQueue).not.toHaveBeenCalledWith("repo.import.requested", expect.anything());
+  });
+});
+
+describe("retryBackoffSeconds", () => {
+  it("doubles the base delay for each retry attempt", () => {
+    expect(retryBackoffSeconds(1, 30)).toBe(30);
+    expect(retryBackoffSeconds(2, 30)).toBe(60);
+    expect(retryBackoffSeconds(3, 30)).toBe(120);
+  });
+
+  it("floors at the base delay for a non-positive retry count", () => {
+    expect(retryBackoffSeconds(0, 30)).toBe(30);
   });
 });
 
@@ -118,5 +234,21 @@ describe("subscribeJob", () => {
     ]);
 
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("works its own fan-out queue name while still validating against the job name's schema", async () => {
+    const work = vi.fn().mockResolvedValue(undefined);
+    const boss = { work } as unknown as PgBoss;
+    const handler = vi.fn().mockResolvedValue(undefined);
+
+    await subscribeJob(
+      boss,
+      "repo.snapshot.created",
+      { consumer: "indexer.parser.snapshot_created", pool: fakePool(false), logger: noopLogger as never },
+      handler,
+      "repo.snapshot.created.parser"
+    );
+
+    expect(work).toHaveBeenCalledWith("repo.snapshot.created.parser", expect.any(Function));
   });
 });

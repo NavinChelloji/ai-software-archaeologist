@@ -37,6 +37,7 @@ Internal detail goes to logs, never to the response.
 | 409 | Conflict (import already running, duplicate) |
 | 402 | Quota exhausted |
 | 422 | Semantically invalid (unsupported language for an operation) |
+| 423 | Account locked (repeated failed logins) — always with `Retry-After` |
 | 429 | Rate limited — always with `Retry-After` |
 | 503 | Dependency unavailable (provider, database, storage) |
 | 500 | Unexpected — always logged with the correlation ID |
@@ -57,6 +58,13 @@ Internal detail goes to logs, never to the response.
 | `OAUTH_EXCHANGE_FAILED` | 503 | GitHub rejected the code exchange |
 | `GITHUB_RECONNECT_REQUIRED` | 403 | GitHub token expired and could not be refreshed |
 | `INTERNAL_TOKEN_INVALID` | 401 | Internal service token missing or invalid (never seen by browsers) |
+| `AUTH_INVALID_CREDENTIALS` | 401 | Email/password login failed (deliberately doesn't say which field) |
+| `AUTH_ACCOUNT_LOCKED` | 423 | Too many failed logins; locked until `Retry-After` |
+| `AUTH_EMAIL_ALREADY_REGISTERED` | 409 | Signup email is already registered |
+| `AUTH_EMAIL_VERIFICATION_INVALID` | 400 | Verification token missing, expired, or already used |
+| `AUTH_PASSWORD_RESET_INVALID` | 400 | Reset token missing, expired, or already used |
+| `AUTH_GITHUB_ALREADY_LINKED` | 409 | That GitHub account is linked to a different user |
+| `AUTH_CANNOT_UNLINK_LAST_METHOD` | 409 | Unlinking would leave the account with no way to sign in |
 
 ### Repositories and Import
 
@@ -80,6 +88,7 @@ Internal detail goes to logs, never to the response.
 | `SNAPSHOT_DOWNLOAD_FAILED` | 503 | Tarball download failed (retryable) |
 | `ARCHIVE_UNSAFE` | 422 | Archive contained traversal, symlinks, or a bomb (never retryable) |
 | `PARSE_FAILED` | 500 | Parser crashed on this snapshot |
+| `GRAPH_BUILD_FAILED` | 500 | Graph builder crashed on this snapshot |
 | `STAGE_TIMEOUT` | 503 | A stage exceeded `STAGE_TIMEOUT_SECONDS` |
 | `LANGUAGE_UNSUPPORTED` | 422 | Requested graph is unavailable for this repository's languages |
 | `JOB_NOT_FOUND` | 404 | No such job |

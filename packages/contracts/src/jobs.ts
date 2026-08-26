@@ -75,7 +75,7 @@ const RepoFilesIndexedPayload = z
   })
   .extend(StageProgressSchema.shape);
 
-const SymbolTypeSchema = z.enum([
+export const SymbolTypeSchema = z.enum([
   "class",
   "interface",
   "function",
@@ -84,6 +84,7 @@ const SymbolTypeSchema = z.enum([
   "enum",
   "variable",
 ]);
+export type SymbolType = z.infer<typeof SymbolTypeSchema>;
 
 const RepoSymbolsExtractedPayload = z
   .object({
@@ -94,12 +95,13 @@ const RepoSymbolsExtractedPayload = z
   })
   .extend(StageProgressSchema.shape);
 
-const ResolutionStatusSchema = z.enum([
+export const ResolutionStatusSchema = z.enum([
   "resolved",
   "external",
   "unresolved",
   "dynamic_unresolvable",
 ]);
+export type ResolutionStatus = z.infer<typeof ResolutionStatusSchema>;
 
 const RepoDependenciesExtractedPayload = z
   .object({
