@@ -17,19 +17,47 @@ export function retryBackoffSeconds(retryCount: number, baseSeconds: number): nu
 }
 
 /**
+ * Fan-out registry (ADR 0003 "Fan-out to multiple independent consumers of
+ * one job requires enqueueing per consumer rather than being free" — pg-boss
+ * has no free pub/sub, each `.work()` on a queue name competes for the same
+ * jobs). `EVENT_CONTRACTS.md`'s Job Names table lists more than one consumer
+ * for a few events (e.g. `repo.snapshot.created` is both a Pipeline
+ * bookkeeping input and the Parser module's real trigger); this is the
+ * explicit list of the *extra* queue names `publishJob` also sends to,
+ * beyond the queue named after the job itself (which the first/bookkeeping
+ * consumer already used before fan-out existed, and keeps using unchanged).
+ * A module wanting one of these deliveries creates its queue with
+ * `ensureProductQueue(boss, jobName, retryPolicy, queueName)` using the
+ * matching name here, then `subscribeJob(..., queueName)`.
+ */
+export const FANOUT_QUEUES: Partial<Record<JobName, readonly string[]>> = {
+  "repo.import.requested": ["repo.import.requested.snapshots"],
+  "repo.snapshot.created": ["repo.snapshot.created.parser"],
+  // GRAPH_SERVICE_PLAN.md "Jobs": the Graph module builds from the same
+  // three Parser terminal events Pipeline already consumes for bookkeeping.
+  "repo.files.indexed": ["repo.files.indexed.graph"],
+  "repo.symbols.extracted": ["repo.symbols.extracted.graph"],
+  "repo.dependencies.extracted": ["repo.dependencies.extracted.graph"],
+};
+
+/**
  * Creates the queue and its dead-letter queue for one documented job name
  * (EVENT_CONTRACTS.md "Retry and Dead Letter": exhausted jobs move to
- * `<job>.dlq`). Call once per job name during service startup.
+ * `<job>.dlq`). Call once per job name during service startup. `queueName`
+ * defaults to `jobName` for the common single-consumer case; a second (or
+ * further) consumer of a fan-out job passes its own name from
+ * `FANOUT_QUEUES`.
  */
 export async function ensureProductQueue(
   boss: PgBoss,
   jobName: JobName,
-  retryPolicy: RetryPolicy
+  retryPolicy: RetryPolicy,
+  queueName: string = jobName
 ): Promise<void> {
-  const deadLetter = `${jobName}.dlq`;
+  const deadLetter = `${queueName}.dlq`;
   await boss.createQueue(deadLetter);
-  await boss.createQueue(jobName, {
-    name: jobName,
+  await boss.createQueue(queueName, {
+    name: queueName,
     retryLimit: retryPolicy.retryLimit,
     retryDelay: retryPolicy.retryBackoffSeconds,
     retryBackoff: true,
@@ -37,22 +65,28 @@ export async function ensureProductQueue(
   });
 }
 
-/** Validates the payload against its job schema, wraps it in an envelope, and enqueues it. `startAfterSeconds` delays delivery — used for stage-retry backoff. */
+/**
+ * Validates the payload against its job schema, wraps it in an envelope, and
+ * enqueues it to the job's own queue plus every queue registered for it in
+ * `FANOUT_QUEUES`. `startAfterSeconds` delays delivery — used for
+ * stage-retry backoff. Throws if any target queue declines (most likely
+ * because its consumer never called `ensureProductQueue` for that name) —
+ * a silently dropped queue is exactly the class of bug fan-out makes
+ * possible, so this fails loudly rather than losing the event.
+ */
 export async function publishJob<T extends JobName>(
   boss: PgBoss,
   input: BuildEnvelopeInput<T>,
   startAfterSeconds?: number
-): Promise<string> {
+): Promise<void> {
   const envelope = buildEnvelope(input);
-  const jobId = await boss.send(
-    input.eventType,
-    envelope,
-    startAfterSeconds ? { startAfter: startAfterSeconds } : {}
-  );
-  if (!jobId) {
-    throw new Error(`pg-boss declined to enqueue "${input.eventType}"`);
+  const options = startAfterSeconds ? { startAfter: startAfterSeconds } : {};
+  const queueNames = [input.eventType, ...(FANOUT_QUEUES[input.eventType] ?? [])];
+
+  const jobIds = await Promise.all(queueNames.map((name) => boss.send(name, envelope, options)));
+  if (jobIds.some((id) => !id)) {
+    throw new Error(`pg-boss declined to enqueue "${input.eventType}" on one or more of: ${queueNames.join(", ")}`);
   }
-  return jobId;
 }
 
 export interface SubscribeOptions {
@@ -68,14 +102,18 @@ export type JobHandler<T extends JobName> = (envelope: TypedEnvelope<T>) => Prom
  * Subscribes to a job name: validates the envelope and payload against
  * `@aca/contracts` on receipt, skips work already recorded in
  * `processed_events` for this consumer, and only then calls `handler`.
+ * `queueName` defaults to `jobName`; a fan-out consumer (see
+ * `FANOUT_QUEUES`) passes its own registered queue name here while still
+ * validating the payload against `jobName`'s schema.
  */
 export async function subscribeJob<T extends JobName>(
   boss: PgBoss,
   jobName: T,
   options: SubscribeOptions,
-  handler: JobHandler<T>
+  handler: JobHandler<T>,
+  queueName: string = jobName
 ): Promise<void> {
-  await boss.work<Record<string, unknown>>(jobName, async (jobs) => {
+  await boss.work<Record<string, unknown>>(queueName, async (jobs) => {
     for (const job of jobs) {
       const envelope = parseEnvelope(jobName, job.data);
 

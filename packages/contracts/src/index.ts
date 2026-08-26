@@ -4,3 +4,7 @@ export * from "./errors";
 export * from "./auth";
 export * from "./repositories";
 export * from "./pipeline";
+export * from "./files";
+export * from "./graph";
+export * from "./retrieval";
+export * from "./chat";

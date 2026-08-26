@@ -51,8 +51,8 @@ describe("job contracts", () => {
 });
 
 describe("error contracts", () => {
-  it("has exactly the 53 codes documented in API_ERROR_CODES.md", () => {
-    expect(ERROR_CODES).toHaveLength(53);
+  it("has exactly the 54 codes documented in API_ERROR_CODES.md", () => {
+    expect(ERROR_CODES).toHaveLength(54);
   });
 
   it("maps every code to an HTTP status", () => {

@@ -88,6 +88,7 @@ Internal detail goes to logs, never to the response.
 | `SNAPSHOT_DOWNLOAD_FAILED` | 503 | Tarball download failed (retryable) |
 | `ARCHIVE_UNSAFE` | 422 | Archive contained traversal, symlinks, or a bomb (never retryable) |
 | `PARSE_FAILED` | 500 | Parser crashed on this snapshot |
+| `GRAPH_BUILD_FAILED` | 500 | Graph builder crashed on this snapshot |
 | `STAGE_TIMEOUT` | 503 | A stage exceeded `STAGE_TIMEOUT_SECONDS` |
 | `LANGUAGE_UNSUPPORTED` | 422 | Requested graph is unavailable for this repository's languages |
 | `JOB_NOT_FOUND` | 404 | No such job |
