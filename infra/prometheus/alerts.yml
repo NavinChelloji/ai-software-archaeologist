@@ -1,0 +1,53 @@
+# RULES.md #22 "Alerts for high error rate, DLQ arrivals, stalled jobs, and
+# provider rate-limit failures." A DLQ arrival is always a bug or an outage
+# (EVENT_CONTRACTS.md) — it pages immediately, not after a delay.
+groups:
+  - name: aca-hardening
+    rules:
+      - alert: HighHttpErrorRate
+        expr: >
+          sum by (service) (rate(http_requests_total{status_code=~"5.."}[5m]))
+          /
+          sum by (service) (rate(http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.service }} is returning 5xx for more than 5% of requests"
+          description: "Error rate has been above 5% for 5 minutes. Check the service's logs by correlationId."
+
+      - alert: DeadLetterQueueNotEmpty
+        expr: queue_dlq_depth > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Jobs are sitting in {{ $labels.queue }}.dlq"
+          description: "A DLQ arrival is always a bug or an outage (EVENT_CONTRACTS.md) — it should never be routine."
+
+      - alert: PipelineJobStalled
+        expr: oldest_job_age_seconds > 1800
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A processing job has been in flight for over 30 minutes"
+          description: "The oldest queued/running job is older than STAGE_TIMEOUT_SECONDS. The stalled-job sweeper should have failed it by now — investigate the indexer worker."
+
+      - alert: ChatLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(chat_latency_seconds_bucket[10m]))) > 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 chat answer latency is above 10s"
+          description: "SCOPE_LIMITS.md targets a first token within FIRST_TOKEN_TARGET_MS; a 10s+ p95 end-to-end latency means users are waiting far longer than that."
+
+      - alert: ProviderErrorRateHigh
+        expr: sum by (provider) (rate(llm_provider_errors_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.provider }} is erroring more than 0.1/s"
+          description: "Sustained LLM or embedding provider errors — check provider status and rate limits."

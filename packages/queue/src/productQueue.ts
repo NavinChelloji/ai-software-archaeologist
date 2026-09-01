@@ -2,6 +2,7 @@ import type PgBoss from "pg-boss";
 import type { Pool } from "pg";
 import {
   buildEnvelope,
+  JOB_NAMES,
   parseEnvelope,
   type BuildEnvelopeInput,
   type JobName,
@@ -38,7 +39,23 @@ export const FANOUT_QUEUES: Partial<Record<JobName, readonly string[]>> = {
   "repo.files.indexed": ["repo.files.indexed.graph"],
   "repo.symbols.extracted": ["repo.symbols.extracted.graph"],
   "repo.dependencies.extracted": ["repo.dependencies.extracted.graph"],
+  // DATA_RETENTION_AND_PRIVACY.md "Deletion": both indexer and ai own
+  // repo-scoped data and must independently clean up on the same event.
+  "repo.deleted": ["repo.deleted.ai"],
+  "user.deleted": ["user.deleted.ai"],
+  "snapshot.prune": ["snapshot.prune.ai"],
 };
+
+/**
+ * Every queue name that can exist in `aca_queue` — every job's own
+ * (job-named) queue plus every fan-out consumer queue registered for it.
+ * Single source of truth for anything that needs to enumerate queues
+ * without hand-duplicating this list, e.g. the queue-depth/DLQ-depth
+ * metrics sweep (RULES.md #15 "Metrics for ... queue depth, job age").
+ */
+export function listAllQueueNames(): string[] {
+  return JOB_NAMES.flatMap((name) => [name, ...(FANOUT_QUEUES[name] ?? [])]);
+}
 
 /**
  * Creates the queue and its dead-letter queue for one documented job name

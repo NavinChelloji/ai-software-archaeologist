@@ -117,3 +117,28 @@ export const InternalRepositoryOwnershipQuerySchema = z.object({
   userId: z.string().uuid(),
 });
 export type InternalRepositoryOwnershipQuery = z.infer<typeof InternalRepositoryOwnershipQuerySchema>;
+
+/**
+ * `DELETE /api/v1/repositories/:repoId` (DEVELOPMENT_STAGES.md Stage 10,
+ * DATA_RETENTION_AND_PRIVACY.md "Repository deletion"). The row disappears
+ * from the user's list immediately (synchronous soft-delete at `indexer`);
+ * the full cascade and S3 cleanup finish asynchronously via `repo.deleted`,
+ * hence "deleting" rather than "deleted".
+ */
+export const DeleteRepositoryResponseSchema = z.object({
+  repoId: z.string().uuid(),
+  status: z.literal("deleting"),
+});
+export type DeleteRepositoryResponse = z.infer<typeof DeleteRepositoryResponseSchema>;
+
+/**
+ * `GET /internal/repositories/:repoId/snapshots` — the snapshot ids
+ * `indexer` currently retains for this repository, after any pruning. `ai`
+ * uses this to know which `snapshot_chunks` rows are still valid when it has
+ * no snapshot table of its own to consult (EVENT_CONTRACTS.md
+ * `snapshot.prune`).
+ */
+export const InternalRepositorySnapshotsResponseSchema = z.object({
+  snapshotIds: z.array(z.string().uuid()),
+});
+export type InternalRepositorySnapshotsResponse = z.infer<typeof InternalRepositorySnapshotsResponseSchema>;
