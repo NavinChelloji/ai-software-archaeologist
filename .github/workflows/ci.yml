@@ -38,9 +38,78 @@ jobs:
       - name: Build
         run: pnpm build
 
+  # ---------------------------------------------------------------------
+  # Stage 10 (DEVELOPMENT_STAGES.md "Dependency and image scanning in CI").
+  # Dependency scan is `continue-on-error` for now: it already surfaces real
+  # findings (transitive high/critical CVEs pulled in by
+  # @xenova/transformers) that predate this stage and need their own
+  # dedicated upgrade/testing pass, not a silent CI failure landing on an
+  # unrelated PR. The scan runs and reports on every build either way —
+  # tightening this to a hard gate is a follow-up once that dependency is
+  # current.
+  # ---------------------------------------------------------------------
+  dependency-scan:
+    name: dependency vulnerability scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.11"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: pnpm audit (high + critical)
+        continue-on-error: true
+        run: pnpm audit --audit-level=high
+
+  # Builds each deployable's production image (tagged by commit SHA, same
+  # image DEVELOPMENT_STAGES.md Stage 11 later pushes) and scans it with
+  # Trivy. Also non-blocking for now, for the same pre-existing-findings
+  # reason as the dependency scan above — see that job's comment.
+  image-scan:
+    name: build + scan images (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            dockerfile: services/ai-archaeologist-auth/Dockerfile
+          - name: indexer
+            dockerfile: services/ai-archaeologist-repository/Dockerfile
+          - name: ai
+            dockerfile: services/ai-archaeologist-intelligence/Dockerfile
+          - name: web
+            dockerfile: apps/ai-archaeologist-frontend/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build ${{ matrix.name }} image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: false
+          load: true
+          tags: aca-${{ matrix.name }}:${{ github.sha }}
+
+      - name: Scan ${{ matrix.name }} image
+        uses: aquasecurity/trivy-action@0.36.0
+        continue-on-error: true
+        with:
+          image-ref: aca-${{ matrix.name }}:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
 # Later stages add: Testcontainers-backed integration tests, the
-# sample-repository e2e suite, per-service Docker image builds tagged with
-# the commit SHA, dependency/image scanning, and a dry-run migration check
-# against a throwaway database — see WORKSPACE_AND_PACKAGE_STRATEGY.md "CI
-# Strategy". Stage 1 only requires install, lint, typecheck, test, build
-# (DEVELOPMENT_STAGES.md Stage 1).
+# sample-repository e2e suite, pushing per-service images to a registry, and
+# a dry-run migration check against a throwaway database — see
+# WORKSPACE_AND_PACKAGE_STRATEGY.md "CI Strategy" and DEVELOPMENT_STAGES.md
+# Stage 11.

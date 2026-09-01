@@ -22,3 +22,13 @@ export function manifestObjectKey(repoId: string, snapshotId: string): string {
 export function fileObjectKey(repoId: string, snapshotId: string, fileId: string): string {
   return `${repoId}/${snapshotId}/files/${fileId}`;
 }
+
+/** Everything belonging to one repository (DATA_RETENTION_AND_PRIVACY.md "indexer deletes the S3 prefix `{repoId}/`"). */
+export function repositoryPrefix(repoId: string): string {
+  return `${repoId}/`;
+}
+
+/** Everything belonging to one snapshot — used by `snapshot.prune` to remove a superseded snapshot's archive, manifest, and per-file objects in one deletion. */
+export function snapshotPrefix(repoId: string, snapshotId: string): string {
+  return `${repoId}/${snapshotId}/`;
+}

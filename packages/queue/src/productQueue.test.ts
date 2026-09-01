@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
 import type PgBoss from "pg-boss";
 import { describe, expect, it, vi } from "vitest";
-import { ensureProductQueue, publishJob, retryBackoffSeconds, subscribeJob } from "./productQueue";
+import { ensureProductQueue, listAllQueueNames, publishJob, retryBackoffSeconds, subscribeJob } from "./productQueue";
 
 const REPO_ID = "123e4567-e89b-12d3-a456-426614174003";
 const USER_ID = "123e4567-e89b-12d3-a456-426614174002";
@@ -28,16 +28,26 @@ describe("publishJob", () => {
     const boss = { send } as unknown as PgBoss;
 
     await publishJob(boss, {
-      eventType: "repo.deleted",
-      payload: { repoId: "123e4567-e89b-12d3-a456-426614174000", reason: "user_request" },
+      eventType: "chat.answer.completed",
+      payload: {
+        conversationId: "123e4567-e89b-12d3-a456-426614174005",
+        messageId: "123e4567-e89b-12d3-a456-426614174006",
+        snapshotId: "123e4567-e89b-12d3-a456-426614174004",
+        model: "test-model",
+        promptTokens: 10,
+        completionTokens: 5,
+        citationCount: 1,
+        latencyMs: 100,
+      },
       correlationId: CORRELATION_ID,
       userId: USER_ID,
+      repoId: REPO_ID,
     });
 
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith(
-      "repo.deleted",
-      expect.objectContaining({ eventType: "repo.deleted" }),
+      "chat.answer.completed",
+      expect.objectContaining({ eventType: "chat.answer.completed" }),
       {}
     );
   });
@@ -98,6 +108,22 @@ describe("publishJob", () => {
     expect(send).toHaveBeenCalledWith("repo.import.requested.snapshots", expect.anything(), {});
   });
 
+  it("fans out repo.deleted to both indexer's and ai's queues", async () => {
+    const send = vi.fn().mockResolvedValue("job-123");
+    const boss = { send } as unknown as PgBoss;
+
+    await publishJob(boss, {
+      eventType: "repo.deleted",
+      payload: { repoId: "123e4567-e89b-12d3-a456-426614174000", reason: "user_request" },
+      correlationId: CORRELATION_ID,
+      userId: USER_ID,
+    });
+
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenCalledWith("repo.deleted", expect.anything(), {});
+    expect(send).toHaveBeenCalledWith("repo.deleted.ai", expect.anything(), {});
+  });
+
   it("throws if any fan-out queue declines, even when the primary queue accepted", async () => {
     const send = vi.fn().mockImplementation(async (name: string) => (name === "repo.snapshot.created" ? "job-1" : null));
     const boss = { send } as unknown as PgBoss;
@@ -152,6 +178,19 @@ describe("ensureProductQueue", () => {
       expect.objectContaining({ name: "repo.import.requested.snapshots", deadLetter: "repo.import.requested.snapshots.dlq" })
     );
     expect(createQueue).not.toHaveBeenCalledWith("repo.import.requested", expect.anything());
+  });
+});
+
+describe("listAllQueueNames", () => {
+  it("includes every job's own queue plus every fan-out consumer queue, with no duplicates", () => {
+    const names = listAllQueueNames();
+
+    expect(names).toEqual([...new Set(names)]);
+    expect(names).toContain("repo.deleted");
+    expect(names).toContain("repo.deleted.ai");
+    expect(names).toContain("user.deleted.ai");
+    expect(names).toContain("snapshot.prune.ai");
+    expect(names).toContain("repo.import.requested.snapshots");
   });
 });
 

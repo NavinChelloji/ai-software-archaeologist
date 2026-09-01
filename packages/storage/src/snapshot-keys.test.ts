@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { archiveObjectKey, fileObjectKey, manifestObjectKey } from "./snapshot-keys";
+import { archiveObjectKey, fileObjectKey, manifestObjectKey, repositoryPrefix, snapshotPrefix } from "./snapshot-keys";
 
 const REPO_ID = "123e4567-e89b-12d3-a456-426614174000";
 const SNAPSHOT_ID = "123e4567-e89b-12d3-a456-426614174001";
@@ -16,5 +16,13 @@ describe("snapshot object keys", () => {
 
   it("builds a per-file object key", () => {
     expect(fileObjectKey(REPO_ID, SNAPSHOT_ID, FILE_ID)).toBe(`${REPO_ID}/${SNAPSHOT_ID}/files/${FILE_ID}`);
+  });
+
+  it("builds a repository-wide prefix", () => {
+    expect(repositoryPrefix(REPO_ID)).toBe(`${REPO_ID}/`);
+  });
+
+  it("builds a snapshot-wide prefix", () => {
+    expect(snapshotPrefix(REPO_ID, SNAPSHOT_ID)).toBe(`${REPO_ID}/${SNAPSHOT_ID}/`);
   });
 });

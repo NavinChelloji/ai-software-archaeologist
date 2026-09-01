@@ -1,0 +1,28 @@
+# Stage 10 (DEVELOPMENT_STAGES.md) — scrapes the /metrics endpoint every
+# deployable exposes (RULES.md #15). Targets assume the default local
+# workflow — `pnpm infra:up` (Docker) plus `pnpm dev` (the four deployables
+# running on the host, WORKSPACE_AND_PACKAGE_STRATEGY.md "Docker Compose
+# Strategy") — so Prometheus, itself in Docker, reaches them via
+# `host.docker.internal`. Running the `apps` compose profile instead (all
+# four deployables containerized) works the same way except targets become
+# the compose service names (`api:3000`, `indexer:3100`, `ai:3200`) — swap
+# the host below if you're scraping that setup.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: api
+    static_configs:
+      - targets: ["host.docker.internal:3000"]
+
+  - job_name: indexer
+    static_configs:
+      - targets: ["host.docker.internal:3100"]
+
+  - job_name: ai
+    static_configs:
+      - targets: ["host.docker.internal:3200"]
